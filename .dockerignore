@@ -1,0 +1,8 @@
+node_modules
+.git
+worker.js
+wrangler.jsonc
+bun.lock
+bun.lockb
+*.md
+start.bat
