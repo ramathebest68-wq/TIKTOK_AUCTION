@@ -35,8 +35,18 @@ function fillSettings(c) {
   $('drawMarginCoins').value = c.drawMarginCoins;
   $('prize').value = c.prize || c.prizes?.['1'] || '';
   $('prizeMode').value = c.prizeMode === 'spin' ? 'spin' : 'text';
+  syncPrizeSeg();
   $('spinHoldSeconds').value = c.spinHoldSeconds || 8;
+  fillPrizeFields(c.spinPrizes);
   const snd = $('soundEnabled'); if (snd) snd.checked = c.soundEnabled !== false;
+  const bv = $('bigDropVol');
+  if (bv && document.activeElement !== bv) { bv.value = c.bigDropVolume ?? 39; $('bigDropVolLabel').textContent = bv.value + '%'; }
+  const hv = $('hugeDropVol');
+  if (hv && document.activeElement !== hv) { hv.value = c.hugeDropVolume ?? 37; $('hugeDropVolLabel').textContent = hv.value + '%'; }
+  for (const [id, key] of MIX_VOLS) {
+    const el = $(id);
+    if (el && document.activeElement !== el) { el.value = c[key] ?? 100; $(id + 'Label').textContent = el.value + '%'; }
+  }
   autoSaveEnabled = Boolean(c.autoSave);
   const toggle = $('autoSave');
   if (toggle) toggle.checked = autoSaveEnabled;
@@ -73,7 +83,7 @@ function render(s) {
       overlayFrame.dataset.sessionOverlay = overlayUrl;
     }
   }
-  if (s.spinToken) { const u = `${location.origin}/spin/${s.spinToken}`; if ($('spinUrl').value !== u) { $('spinUrl').value = u; $('spinFrame').src = u; } }
+  if (s.spinToken) { const u = `${location.origin}/spin/${s.spinToken}`; if ($('spinUrl').value !== u) { $('spinUrl').value = u; $('spinFrame').src = u; } const os = $('openSpin'); if (os) { os.href = u; os.removeAttribute('aria-disabled'); } }
   if (s.config) fillSettings(s.config);
   markTheme(s.config?.overlayTheme);
   const status = s.connection?.status || 'disconnected';
@@ -188,9 +198,84 @@ socket.on('chat:message', m=>{ if(latest){ latest.chatLog=[...(latest.chatLog||[
 fetch('/api/state').then(r=>r.json()).then(render);
 
 $('copySpinBtn').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('spinUrl').value); } catch { $('spinUrl').select(); document.execCommand('copy'); } $('copySpinBtn').textContent = 'Copied ✓'; setTimeout(() => { $('copySpinBtn').textContent = 'Copy'; }, 1000); });
+// ---- Spin Prizes modal
+const PRIZE_KEYS = ['basic', 'rare', 'epic', 'legendary', 'mythic', 'secret'];
+const PRIZE_DEFAULTS = { basic: '10 RBX', rare: '25 RBX', epic: '50 RBX', legendary: '100 RBX', mythic: '500 RBX', secret: '1000 RBX' };
+let savedPrizes = { ...PRIZE_DEFAULTS };
+function fillPrizeFields(p) {
+  savedPrizes = { ...PRIZE_DEFAULTS, ...(p || {}) };
+  if (!$('prizeModal').classList.contains('hidden')) return; // don't overwrite while editing
+  PRIZE_KEYS.forEach((k) => { $('pz_' + k).value = savedPrizes[k]; });
+}
+function openPrizeModal() {
+  PRIZE_KEYS.forEach((k) => { $('pz_' + k).value = savedPrizes[k]; });
+  $('prizeModal').classList.remove('hidden');
+  $('pz_basic').focus();
+}
+function closePrizeModal() { $('prizeModal').classList.add('hidden'); }
+$('prizesBtn').addEventListener('click', openPrizeModal);
+['prizeModalClose', 'prizeCancel'].forEach((id) => $(id).addEventListener('click', closePrizeModal));
+$('prizeModal').addEventListener('mousedown', (e) => { if (e.target === $('prizeModal')) closePrizeModal(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closePrizeModal(); if (e.key === 'Enter' && e.target?.id?.startsWith('pz_')) $('prizeSave').click(); });
+$('prizeReset').addEventListener('click', () => { PRIZE_KEYS.forEach((k) => { $('pz_' + k).value = PRIZE_DEFAULTS[k]; }); });
+$('prizeSave').addEventListener('click', async () => {
+  const btn = $('prizeSave'); btn.disabled = true;
+  const spinPrizes = {}; PRIZE_KEYS.forEach((k) => { spinPrizes[k] = $('pz_' + k).value; });
+  try {
+    const r = await fetch('/api/spin/prizes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spinPrizes }) });
+    if (!r.ok) throw new Error('save failed');
+    closePrizeModal();
+    render(await r.json());
+    const pb = $('prizesBtn'); pb.textContent = 'Saved ✓'; setTimeout(() => { pb.textContent = '🎁 Spin Prizes'; }, 1200);
+  } catch { btn.textContent = 'Save failed'; setTimeout(() => { btn.textContent = 'Save'; }, 1500); }
+  finally { btn.disabled = false; }
+});
+
 $('testSpinBtn').addEventListener('click', () => fetch('/api/spin/test', { method: 'POST' }));
 
 socket.on('spin:test', (t) => {
   const w = t.spin.win;
-  $('spinTestResult').innerHTML = `Hasil test: <b>${w === 1000 ? '+1000 RBX SECRET' : '+' + w + ' RBX'}</b>` + (t.spin.secretPct ? ` · secret ${t.spin.secretPct}%` : '') + ` · persen: ${t.spin.weights.join('/')}`;
+  const label = t.spin.prizes?.[w === 1000 ? 'secret' : PRIZE_KEYS[[10, 25, 50, 100, 500].indexOf(w)]] || w;
+  $('spinTestResult').innerHTML = `Hasil test: <b>${esc(label)}${w === 1000 ? ' (SECRET)' : ''}</b>` + (t.spin.secretPct ? ` · secret ${t.spin.secretPct}%` : '') + ` · persen: ${t.spin.weights.join('/')}`;
 });
+
+function syncPrizeSeg() {
+  const v = $('prizeMode').value;
+  document.querySelectorAll('#prizeModeSeg .seg-opt').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === v)));
+}
+document.querySelectorAll('#prizeModeSeg .seg-opt').forEach((b) => b.addEventListener('click', () => {
+  $('prizeMode').value = b.dataset.mode;
+  syncPrizeSeg();
+  $('prizeMode').dispatchEvent(new Event('change', { bubbles: true }));
+}));
+
+
+// ---- Tabs (Dashboard / Sound)
+document.querySelectorAll('#tabs .tab').forEach((b) => b.addEventListener('click', () => {
+  const t = b.dataset.tab;
+  document.querySelectorAll('#tabs .tab').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', on); });
+  document.querySelectorAll('.tab-pane').forEach((p) => p.classList.toggle('hidden', p.id !== 'pane-' + t));
+}));
+
+// ---- Drop sound volumes (tab Sound)
+let volTimer = null;
+const MIX_VOLS = [['masterVol', 'masterVolume'], ['systemVol', 'systemVolume'], ['coinVol', 'coinVolume'], ['fxVol', 'fxVolume'], ['spinVol', 'spinVolume']];
+async function saveDropVol() {
+  clearTimeout(volTimer);
+  const body = { bigDropVolume: $('bigDropVol').value, hugeDropVolume: $('hugeDropVol').value };
+  for (const [id, key] of MIX_VOLS) body[key] = $(id).value;
+  await fetch('/api/sound/volume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+for (const [id] of MIX_VOLS) {
+  const sl = $(id), lb = $(id + 'Label');
+  sl.addEventListener('input', () => { lb.textContent = sl.value + '%'; clearTimeout(volTimer); volTimer = setTimeout(saveDropVol, 250); });
+}
+$('allVolReset').addEventListener('click', async () => { for (const [id] of MIX_VOLS) { $(id).value = 100; $(id + 'Label').textContent = '100%'; } await saveDropVol(); });
+function wireVol(sliderId, labelId, testId, resetId, coins, def) {
+  const sl = $(sliderId), lb = $(labelId);
+  sl.addEventListener('input', () => { lb.textContent = sl.value + '%'; clearTimeout(volTimer); volTimer = setTimeout(saveDropVol, 250); });
+  $(testId).addEventListener('click', async () => { await saveDropVol(); fetch('/api/sound/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coins }) }); });
+  $(resetId).addEventListener('click', async () => { sl.value = def; lb.textContent = def + '%'; await saveDropVol(); });
+}
+wireVol('bigDropVol', 'bigDropVolLabel', 'bigDropTest', 'bigDropReset', 500, 39);
+wireVol('hugeDropVol', 'hugeDropVolLabel', 'hugeDropTest', 'hugeDropReset', 1000, 37);

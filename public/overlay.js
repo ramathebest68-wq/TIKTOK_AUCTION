@@ -6,6 +6,11 @@ const inIframe=window.self!==window.top;
 })();
 /* ---------- Sound (WebAudio synth, no files) ---------- */
 let audioCtx=null;
+/* Volume per kategori (tab Sound di dashboard). volMul dipakai semua generator suara; play() mengisinya per suara. */
+const cfgVol=(k,d=100)=>{ const n=Number(state?.config?.[k]); return (Number.isFinite(n)?Math.min(100,Math.max(0,n)):d)/100; };
+const SND_SYSTEM=new Set(['tick','over','snipe','bonus','win']), SND_COIN=new Set(['coin','pip']);
+const sndCat=n=>SND_SYSTEM.has(n)?'systemVolume':SND_COIN.has(n)?'coinVolume':'fxVolume';
+let volMul=1;
 function soundOn(){ return !inIframe && qs.get('mute')!=='1' && state?.config?.soundEnabled!==false; }
 function ac(){
   try{
@@ -45,7 +50,7 @@ function tone(freq,start,dur,{type='sine',vol=.15,to=null}={}){
   o.type=type; o.frequency.setValueAtTime(freq,t);
   if(to) o.frequency.exponentialRampToValueAtTime(to,t+dur);
   g.gain.setValueAtTime(0.0001,t);
-  g.gain.exponentialRampToValueAtTime(vol,t+0.01);
+  g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol*volMul),t+0.01);
   g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
   o.connect(g); g.connect(out());
   o.start(t); o.stop(t+dur+0.03);
@@ -56,7 +61,7 @@ function noise(start,dur,vol){
   for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
   const src=c.createBufferSource(); src.buffer=buf;
   const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=700;
-  const g=c.createGain(); g.gain.value=vol;
+  const g=c.createGain(); g.gain.value=vol*volMul;
   src.connect(f); f.connect(g); g.connect(out()); src.start(c.currentTime+start);
 }
 const sfx={
@@ -85,6 +90,14 @@ const sfx={
     for(let i=0;i<10;i++) tone(300+i*70,.3+i*.3,.8,{type:'sine',vol:.025,to:1500+i*150});
     tone(60,3.42,1.2,{type:'sine',vol:.55,to:20}); noise(3.4,1.0,.5); [523,784,1047,1568,2093,3136].forEach((f,i)=>tone(f,3.5+i*.08,.8,{type:'triangle',vol:.11}));
     for(let i=0;i<26;i++) tone(2200+Math.random()*2600,3.9+Math.random()*1.3,.07,{type:'sine',vol:.04}); },
+  swan(){ // danau tenang -> harpa lembut -> kepakan sayap -> ledakan berkilau
+    noise(0,.9,.12); tone(180,0,.9,{type:'sine',vol:.07,to:420});
+    [659,784,988,1319,988,784,659,988,1319,1568].forEach((f,i)=>bell(f,.75+i*.22,.8,.07));
+    [523,659,784].forEach((f,i)=>tone(f,2.9+i*.04,.9,{type:'triangle',vol:.035}));
+    noise(3.6,.3,.28); noise(3.95,.3,.34); noise(4.3,.3,.4); tone(400,3.5,1.05,{type:'triangle',vol:.07,to:1500});
+    tone(70,4.55,.9,{type:'sine',vol:.5,to:24}); noise(4.55,.7,.45);
+    [1047,1319,1568,2093,2637,3136].forEach((f,i)=>bell(f,4.57+i*.06,1.3,.09));
+    for(let i=0;i<18;i++) tone(2400+Math.random()*2600,4.8+Math.random()*1.6,.08,{type:'sine',vol:.035}); },
   shark(){ noise(0,1.0,.22); tone(90,0,1.2,{type:'sine',vol:.2,to:240});
     for(let i=0;i<14;i++) tone(500+Math.random()*900,.05+i*.07,.09,{type:'sine',vol:.04,to:1600});
     [1.5,1.95,2.35,2.7,2.98,3.2,3.38].forEach((t,i)=>{ const f=i%2?87.3:82.4; tone(f,t,.32,{type:'sawtooth',vol:.1}); tone(f/2,t,.4,{type:'sine',vol:.25}); });
@@ -106,7 +119,7 @@ function air(t,d=.6,v=.14,from=300,to=3000){ const c=ac(); if(!c) return; const 
   for(let i=0;i<len;i++) data[i]=(Math.random()*2-1)*Math.sin(Math.PI*i/len);
   const s=c.createBufferSource(); s.buffer=buf; const f=c.createBiquadFilter(); f.type='bandpass'; f.Q.value=1.2;
   const st=c.currentTime+t; f.frequency.setValueAtTime(from,st); f.frequency.exponentialRampToValueAtTime(to,st+d);
-  const g=c.createGain(); g.gain.value=v; s.connect(f); f.connect(g); g.connect(out()); s.start(st); }
+  const g=c.createGain(); g.gain.value=v*volMul; s.connect(f); f.connect(g); g.connect(out()); s.start(st); }
 const E5=659.25,G5=783.99,B5=987.77,D6=1174.66,E6=1318.5,G6=1568,B6=1975.5,E7=2637;
 const sfxBW={
   coin(){ bell(E6,0,.8,.12); bell(B6,.07,.9,.09); },
@@ -133,7 +146,7 @@ function ftone(freq,start,dur,{type='sawtooth',vol=.1,cut=2400,cutTo=null,q=1,to
   const t=c.currentTime+start, o=c.createOscillator(), f=c.createBiquadFilter(), g=c.createGain();
   o.type=type; o.frequency.setValueAtTime(freq,t); if(to) o.frequency.exponentialRampToValueAtTime(to,t+dur);
   f.type='lowpass'; f.Q.value=q; f.frequency.setValueAtTime(cut,t); if(cutTo) f.frequency.exponentialRampToValueAtTime(cutTo,t+dur);
-  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+att); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol*volMul),t+att); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
   o.connect(f); f.connect(g); g.connect(out()); o.start(t); o.stop(t+dur+.03);
 }
 function fmtone(freq,ratio,idx,start,dur,vol=.1){
@@ -141,7 +154,7 @@ function fmtone(freq,ratio,idx,start,dur,vol=.1){
   const t=c.currentTime+start, car=c.createOscillator(), mod=c.createOscillator(), mg=c.createGain(), g=c.createGain();
   car.frequency.value=freq; mod.frequency.value=freq*ratio;
   mg.gain.setValueAtTime(freq*idx,t); mg.gain.exponentialRampToValueAtTime(freq*.01+1,t+dur*.8);
-  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.004); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol*volMul),t+.004); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
   mod.connect(mg); mg.connect(car.frequency); car.connect(g); g.connect(out());
   car.start(t); mod.start(t); car.stop(t+dur+.03); mod.stop(t+dur+.03);
 }
@@ -186,7 +199,14 @@ const sfxHex={
   bonus(){ [5,7,9,11].forEach((n,i)=>fmtone(HXN[n],2,2.5,i*.06,.4,.08)); hxthump(100,0,.2,.2); },
   win(){ hxthump(56,0,1.3,.4); air(0,.9,.15,250,6000); [2,4,5,7,9,10,11].forEach((n,i)=>fmtone(HXN[n],2,2.2,.2+i*.085,.9,.075)); [4,7,10].forEach(n=>fmtone(HXN[n],1,1.5,1.0,1.5,.07)); }
 };
-function play(name,arg){ if(soundOn()){ try{ const pk=isBW()?sfxBW:sfx; (pk[name]||sfx[name])(arg); }catch{} } }
+function play(name,arg){
+  if(!soundOn()) return;
+  const m=cfgVol('masterVolume')*cfgVol(sndCat(name));
+  if(m<=0) return;
+  volMul=m;
+  try{ const pk=isBW()?sfxBW:sfx; (pk[name]||sfx[name])(arg); }catch{}
+  finally{ volMul=1; }
+}
 if(!inIframe) document.addEventListener('pointerdown',()=>ac(),{once:true});
 
 /* ---------- Confetti ---------- */
@@ -362,9 +382,9 @@ function initSheens(){
 /* tier = visual level (CSS), kind = which effect plays
    1-19 coin | 20+ fountain | 50+ confetti | 100+ burst | 200+ fireworks | 299+ NUKE | 500+ MONEY GUN | 1000+ GALAXY */
 const tierOf=n=>n>=299?5:n>=100?4:n>=50?3:n>=10?2:1;
-const kindOf=n=>n>=5000?'blackhole':n>=3000?'meteor':n>=2100?'shark':n>=1000?'galaxy':n>=500?'moneygun':n>=299?'nuke':n>=200?'fireworks':n>=150?'lightning':n>=100?'burst':n>=50?'confetti':n>=35?'hearts':n>=20?'fountain':n>=10?'stars':'coin';
-const KIND_TAG_HEX={coin:'HEX DROP',stars:'PRISM DROP',fountain:'JET DROP',hearts:'PENTA DROP',confetti:'PARTY DROP',burst:'SHOCK DROP',lightning:'ARC DROP',fireworks:'NOVA DROP',nuke:'CORE DROP',moneygun:'RAIL DROP',galaxy:'GRID DROP',meteor:'METEOR DROP',shark:'SHARK DROP'};
-const KIND_TAG={coin:'DROP',stars:'STAR DROP',fountain:'NICE DROP',hearts:'♥ LOVE DROP',confetti:'SUPER DROP',burst:'BIG DROP',lightning:'⚡ THUNDER DROP!',fireworks:'MEGA DROP',nuke:'☢ NUKE DROP!!!',moneygun:'💸 MONEY GUN DROP!!',galaxy:'✦ GALAXY DROP!!!',meteor:'☄ METEOR DROP!!!!',shark:'🦈 SHARK DROP!!!!',blackhole:'🕳 BLACK HOLE DROP!!!!!'};
+const kindOf=n=>n>=5000?'blackhole':n>=3000?'meteor':n>=2100?'shark':n>=1000?'galaxy':n>=600?'swan':n>=500?'moneygun':n>=299?'nuke':n>=200?'fireworks':n>=150?'lightning':n>=100?'burst':n>=50?'confetti':n>=35?'hearts':n>=20?'fountain':n>=10?'stars':'coin';
+const KIND_TAG_HEX={coin:'HEX DROP',stars:'PRISM DROP',fountain:'JET DROP',hearts:'PENTA DROP',confetti:'PARTY DROP',burst:'SHOCK DROP',lightning:'ARC DROP',fireworks:'NOVA DROP',nuke:'CORE DROP',moneygun:'RAIL DROP',swan:'SWAN DROP',galaxy:'GRID DROP',meteor:'METEOR DROP',shark:'SHARK DROP'};
+const KIND_TAG={coin:'DROP',stars:'STAR DROP',fountain:'NICE DROP',hearts:'♥ LOVE DROP',confetti:'SUPER DROP',burst:'BIG DROP',lightning:'⚡ THUNDER DROP!',fireworks:'MEGA DROP',nuke:'☢ NUKE DROP!!!',moneygun:'💸 MONEY GUN DROP!!',swan:'🦢 SWAN LAKE DROP!!',galaxy:'✦ GALAXY DROP!!!',meteor:'☄ METEOR DROP!!!!',shark:'🦈 SHARK DROP!!!!',blackhole:'🕳 BLACK HOLE DROP!!!!!'};
 function burstFx(x,y,tier){
   const fx=$('fx'); if(!fx) return;
   tier=Math.max(1,Math.min(4,tier));
@@ -453,27 +473,43 @@ function countUp(el,from,to,ms=650){
     if(k<1) requestAnimationFrame(step);
   })(t0);
 }
-function showGiftAlert(g,tier){
-  const el=$('giftAlert'); if(!el) return;
-  const now=Date.now(), key=g.userId||g.nickname;
-  if(combo.key===key && now-combo.ts<2200){ combo.total+=g.coins; combo.count++; }
-  else combo={key,total:g.coins,count:1,ts:now};
-  combo.ts=now;
-  const t=Math.max(tier,tierOf(combo.total)), kind=kindOf(Math.max(g.coins,combo.total));
-  $('giftAvatar').src=avatar(g.avatar);
-  $('giftName').textContent=g.nickname||'';
-  $('giftAmt').textContent='+'+combo.total.toLocaleString();
-  $('giftTag').textContent=KIND_TAG[kind];
-  const cb=$('giftCombo');
-  cb.classList.remove('on'); cb.textContent='x'+combo.count;
-  if(combo.count>1){ void cb.offsetWidth; cb.classList.add('on'); }
-  el.className='gift-alert t'+Math.min(5,t)+' k-'+kind;
-  void el.offsetWidth; el.classList.add('show');
+/* ---------- Big-drop music ----------
+   gift 500..999  -> /audio/we-on-go.mp3   (volume: config.bigDropVolume)
+   gift >= 1000   -> /audio/here-1000.mp3  (volume: config.hugeDropVolume, 8.5s clip dengan fade in/out)
+   Hanya satu yang bunyi di satu waktu: yang baru menghentikan yang lama. */
+const BIG_DROP_MUSIC_COINS=500;              // ubah angka ini kalau mau threshold lain
+const HUGE_DROP_MUSIC_COINS=1000;
+const BIG_DROP_MUSIC_SRC='/audio/we-on-go.mp3';
+const HUGE_DROP_MUSIC_SRC='/audio/here-1000.mp3';
+// Volume diatur dari dashboard (tab Sound), default 39% (500+) / 37% (1000+). ?musicvol=0.5 di URL overlay = override manual untuk keduanya.
+function dropVolume(key){
+  const def=key==='hugeDropVolume'?37:39;
+  const q=qs.get('musicvol');
+  const v=(q!==null&&q!=='') ? Number(q) : (Number(state?.config?.[key] ?? def)/100);
+  return Math.min(1,Math.max(0,Number.isFinite(v)?v:def/100))*cfgVol('masterVolume');
 }
+const dropAudio={ big:null, huge:null };
+function getDropAudio(kind){
+  if(!dropAudio[kind]){ dropAudio[kind]=new Audio(kind==='huge'?HUGE_DROP_MUSIC_SRC:BIG_DROP_MUSIC_SRC); dropAudio[kind].preload='auto'; }
+  return dropAudio[kind];
+}
+function bigDropMusic(coins){
+  if(!soundOn() || qs.get('music')==='0') return;
+  try{
+    const kind=(Number(coins)||0)>=HUGE_DROP_MUSIC_COINS?'huge':'big';
+    const other=dropAudio[kind==='huge'?'big':'huge'];
+    if(other){ other.pause(); other.currentTime=0; }
+    const a=getDropAudio(kind);
+    a.volume=dropVolume(kind==='huge'?'hugeDropVolume':'bigDropVolume');
+    a.currentTime=0;                          // gift berikutnya = lagu mulai dari awal
+    const pr=a.play(); if(pr&&pr.catch) pr.catch(()=>{});
+  }catch{}
+}
+if(!inIframe && qs.get('mute')!=='1' && qs.get('music')!=='0'){ try{ getDropAudio('big'); getDropAudio('huge'); }catch{} } // preload
+
 function onGift(g){
   const tier=tierOf(g.coins);
-  play(kindOf(g.coins)==='moneygun'?'moneygun':kindOf(g.coins)==='blackhole'?'blackhole':({shark:'shark',meteor:'meteor',galaxy:'galaxy',moneygun:'moneygun',nuke:'nuke',fireworks:'fireworks',lightning:'lightning',burst:'big',confetti:'confetti',hearts:'hearts',fountain:'coin2',stars:'stars',coin:'coin'}[kindOf(g.coins)]), g.coins);
-  showGiftAlert(g,tier);
+  play(kindOf(g.coins)==='moneygun'?'moneygun':kindOf(g.coins)==='blackhole'?'blackhole':({swan:'swan',shark:'shark',meteor:'meteor',galaxy:'galaxy',moneygun:'moneygun',nuke:'nuke',fireworks:'fireworks',lightning:'lightning',burst:'big',confetti:'confetti',hearts:'hearts',fountain:'coin2',stars:'stars',coin:'coin'}[kindOf(g.coins)]), g.coins);
   const st=$('stack');
   if(tier>=3){
     st.classList.remove('gift3','gift4'); void st.offsetWidth;
@@ -578,11 +614,10 @@ function render(s){
     const cnt=counters.get(key);
     const shown=cnt?cnt.cur:(delta>=20?prev:u.coins);
     const hit=delta>0?` coin-hit hit${Math.min(4,tier)}${delta>=20?' collect':''}`:'';
-    const burst=delta>0?`<span class="coin-burst t${Math.min(4,tier)}">+${delta.toLocaleString()} C</span>`:'';
     const star=i===0?'<span class="star">★</span>':'';
     let gap='';
     if(activePhase && i>0) gap=`<div class="gap-right">-${(users[0].coins-u.coins).toLocaleString()}<i class="coin red"></i></div>`;
-    return `<div class="ov-row rank${i+1}${hit}${previousCoins.has(key)?'':' bw-enter'}" data-key="${esc(key)}" data-tier="${tier}" data-from="${cnt?cnt.cur:(prev??u.coins)}" data-to="${u.coins}" style="--sd:${sheenDelay(i+4)}"><div class="ov-rank"><div class="medal m${i+1}">${i+1}</div></div><span class="avw"><img class="ov-avatar" src="${esc(avatar(u.avatar))}" alt=""></span><div class="ov-info"><div class="ov-name"><span class="nm">${esc(u.nickname)}</span>${star}</div><div class="ov-coins-wrap"><span class="ov-coins${(rainbowUntil.get(key)||0)>Date.now()?' rainbow-num':''}">${shown.toLocaleString()}</span><i class="coin"></i>${burst}</div></div>${gap}<i class="bw-meter" style="--p:${(u.coins/Math.max(1,users[0].coins)).toFixed(3)}"></i></div>`;
+    return `<div class="ov-row rank${i+1}${hit}${previousCoins.has(key)?'':' bw-enter'}" data-key="${esc(key)}" data-tier="${tier}" data-from="${cnt?cnt.cur:(prev??u.coins)}" data-to="${u.coins}" style="--sd:${sheenDelay(i+4)}"><div class="ov-rank"><div class="medal m${i+1}">${i+1}</div></div><span class="avw"><img class="ov-avatar" src="${esc(avatar(u.avatar))}" alt=""></span><div class="ov-info"><div class="ov-name"><span class="nm">${esc(u.nickname)}</span>${star}</div><div class="ov-coins-wrap"><span class="ov-coins${(rainbowUntil.get(key)||0)>Date.now()?' rainbow-num':''}">${shown.toLocaleString()}</span><i class="coin"></i></div></div>${gap}<i class="bw-meter" style="--p:${(u.coins/Math.max(1,users[0].coins)).toFixed(3)}"></i></div>`;
   }).join('')+[1,2,3].filter(n=>n>users.length).map(n=>{const rv=Date.now()<introEnd+900; const dl=((introEnd+(n-1)*220-Date.now())/1000).toFixed(2); return `<div class="ov-row rank${n} placeholder${rv?' reveal':''}" data-tier="0" style="--sd:${sheenDelay(n+3)}${rv?`;animation-delay:${dl}s`:''}"><div class="ov-rank"><div class="medal m${n}">${n}</div></div><span class="avw"><div class="ov-avatar q">?</div></span><div class="ov-info"><div class="ov-name"><span class="nm">???</span></div><div class="ov-coins-wrap"><span class="ov-coins">???</span><i class="coin"></i></div></div><i class="bw-meter" style="--p:0"></i></div>`}).join('');
   for(const u of users) previousCoins.set(keyOf(u), u.coins);
   for(const key of [...previousCoins.keys()]) if(!seenKeys.has(key)) previousCoins.delete(key);
@@ -625,7 +660,7 @@ function render(s){
     $('winnerName').textContent=s.winner.nickname || 'Unknown';
     $('winnerCoins').textContent=s.winner.coins.toLocaleString();
     $('winnerAvatar').src=avatar(s.winner.avatar);
-    { const wp=String(s.prize||'').trim()||'Prize #1'; const we=$('winnerPrize'); we.textContent=wp; we.dataset.text=wp; }
+    { const wp=String(s.prize||'').trim()||'Prize #1'; const we=$('winnerPrize'); const changed=we.dataset.text && we.dataset.text!==wp; we.textContent=wp; we.dataset.text=wp; if(changed && we.animate) we.animate([{transform:'scale(1.5)',filter:'brightness(2)'},{transform:'scale(1)',filter:'brightness(1)'}],{duration:600,easing:'cubic-bezier(.3,1.5,.5,1)'}); }
     syncWinnerChat(s.winner, s.chatLog || [], s.winnerChat || '', s.winnerChatMeta || {});
   } else {
     winnerPanel.classList.add('hidden');
@@ -707,6 +742,8 @@ function updateTimer(){
   handleCountdown(inTimed&&target?e:raw);
 }
 socket.on('auction:state',render);
+// Gift >= 500 coins: server sends this at any time (not only during an active auction phase)
+socket.on('bigdrop:sound',(e)=>bigDropMusic(e?.coins));
 socket.on('auction:tick',t=>{if(state){state.phase=t.phase;state.phaseEndsAt=t.phaseEndsAt;updateTimer();}});
 socket.on('chat:message',chat=>{
   if(state){

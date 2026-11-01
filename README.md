@@ -204,3 +204,16 @@ Satu Railway service/instance cocok untuk model session in-memory + Socket.IO in
 - Tidak ada pemenang / mode Text → hanya background hijau. Ada pemenang (mode Spin) → foto + nama pemenang di atas, prize `???`, hitung mundur 5-1, persen RBX/secret, spin, hasil tampil (`Spin result tampil` detik), lalu semuanya hilang → hijau kosong.
 - Tombol **Test spin** untuk mencoba tanpa live.
 - Hasil spin ditentukan server saat pemenang final (draw ikut dihitung).
+
+### Spin Prizes (teks hadiah bisa diganti)
+- Di frame Setup, di sebelah tombol **Save**, ada tombol **🎁 Spin Prizes**.
+- Klik → muncul frame berisi textbox: **Basic, Rare, Epic, Legendary, Mythic, Secret**. Isi teks hadiah sesuai keinginan (maks 40 karakter), lalu klik **Save**.
+- Teks itu tampil di chip persen, tile reel, hasil pemenang, dan overlay winner. Kolom kosong = kembali ke default (`10 RBX`, `25 RBX`, dst).
+- Tersimpan per session, jadi tetap ada setelah restart.
+
+## Big Drop Music (500+ C)
+- Saat ada DROP **500 C atau lebih** dalam satu gift, overlay memutar `public/audio/we-on-go.mp3` (BIA - WE ON GO).
+- Ikut aturan suara yang ada: mati kalau toggle **Sound** off, `?mute=1`, atau preview di dashboard (iframe).
+- Parameter URL tambahan: `?music=0` (matikan lagu saja, efek suara tetap), `?musicvol=0.5` (volume 0-1, default 0.75).
+- Ganti threshold: ubah `BIG_DROP_MUSIC_COINS` di `public/overlay.js`. Ganti lagu: timpa file `public/audio/we-on-go.mp3`.
+- Gift 500+ berikutnya saat lagu masih jalan = lagu diulang dari awal.

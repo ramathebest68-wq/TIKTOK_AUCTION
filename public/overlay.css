@@ -501,6 +501,8 @@ html,body{margin:0;padding:0}
 .gift-alert.k-moneygun{border-color:#ffb3ec;box-shadow:0 0 32px rgba(255,59,212,1), 0 0 56px rgba(160,60,255,.75), inset 0 0 18px rgba(255,120,230,.38)}
 .gift-alert.k-moneygun .ga-amt{color:#ff9ee8;text-shadow:0 0 14px rgba(255,59,212,.9)}
 .gift-alert.k-moneygun .ga-tag{background:linear-gradient(90deg,#ff9ee8,#fff0fb,#c04dff,#ff9ee8)!important;background-size:300% 100%!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important}
+.gift-alert.k-swan{border-color:#e9f7ff;background:linear-gradient(180deg,#0b4a86,#051a38);box-shadow:0 0 30px rgba(130,205,255,.95),0 0 56px rgba(255,255,255,.5),inset 0 0 18px rgba(200,235,255,.45)}
+.gift-alert.k-swan .ga-amt{color:#eaf8ff;text-shadow:0 0 14px rgba(140,210,255,.95)}
 .gift-alert.k-galaxy{border-color:#fff;box-shadow:0 0 34px rgba(179,77,255,1), 0 0 60px rgba(255,59,212,.7), inset 0 0 18px rgba(179,140,255,.4)}
 .gift-alert.k-galaxy .ga-amt{color:#e0c8ff;text-shadow:0 0 14px rgba(179,77,255,.95)}
 .gift-alert.k-stars{border-color:#fff4b0;box-shadow:0 0 22px rgba(255,244,176,.9), inset 0 0 12px rgba(255,244,176,.3)}

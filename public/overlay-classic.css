@@ -231,6 +231,8 @@
   background:linear-gradient(100deg,transparent,rgba(255,236,160,.28) 50%,transparent);width:30%;opacity:.8;mix-blend-mode:screen;
 }
 
+:root:not([data-skin=blaxwhit]):not([data-skin=aurora]) .gift-alert.k-swan{border-color:#e9f7ff;background:linear-gradient(180deg,#0b4a86,#051a38);box-shadow:0 0 30px rgba(130,205,255,.95),0 0 56px rgba(255,255,255,.5),inset 0 0 18px rgba(200,235,255,.45)}
+:root:not([data-skin=blaxwhit]):not([data-skin=aurora]) .gift-alert.k-swan .ga-amt{color:#eaf8ff;text-shadow:0 0 14px rgba(140,210,255,.95)}
 :root:not([data-skin=blaxwhit]):not([data-skin=aurora]) .gift-alert.k-shark{border-color:#bfeaff;background:linear-gradient(180deg,#06304f,#020d1c);box-shadow:0 0 34px rgba(60,190,255,.95),0 0 60px rgba(0,110,220,.6),inset 0 0 18px rgba(130,220,255,.4)}
 :root:not([data-skin=blaxwhit]):not([data-skin=aurora]) .gift-alert.k-shark .ga-amt{color:#9fe8ff;text-shadow:0 0 16px rgba(60,200,255,.95)}
 

@@ -24,9 +24,17 @@ const defaultConfig = {
   drawMarginCoins: 0,
   prize: 'Prize #1',
   soundEnabled: true,
+  bigDropVolume: 39,   // % volume of we-on-go.mp3 (0-100)
+  hugeDropVolume: 37,  // % volume of here-1000.mp3 (gift >= 1000 coins)
+  masterVolume: 100,   // % master: semua suara (synth, lagu drop, spin)
+  systemVolume: 100,   // % tick / countdown, overtaken, snipe, bonus time, win
+  coinVolume: 100,     // % suara coin nambah (coin, pip)
+  fxVolume: 100,       // % suara animasi gift besar (stars ... black hole)
+  spinVolume: 100,     // % suara spin wheel
   overlayTheme: 'classic',
   prizeMode: 'text',
   spinHoldSeconds: 8,
+  spinPrizes: null,
   autoSave: false
 };
 
@@ -43,6 +51,17 @@ function normPrizeMode(v) {
 
 // ---- Spin RBX (ported from Open Robux Chest) --------------------------------
 const SPIN_VALUES = [10, 25, 50, 100, 500];
+// Editable prize text per tier (control page -> "Spin Prizes"). Order = SPIN_VALUES, then secret.
+const SPIN_TIER_KEYS = ['basic', 'rare', 'epic', 'legendary', 'mythic', 'secret'];
+const DEFAULT_SPIN_PRIZES = { basic: '10 RBX', rare: '25 RBX', epic: '50 RBX', legendary: '100 RBX', mythic: '500 RBX', secret: '1000 RBX' };
+function normSpinPrizes(input) {
+  const out = {};
+  for (const k of SPIN_TIER_KEYS) {
+    const v = String(input?.[k] ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+    out[k] = v || DEFAULT_SPIN_PRIZES[k];
+  }
+  return out;
+}
 const SPIN_SECRET_CHANCE = 0.15;
 function randSpinWeights() {
   const idx = [0, 1, 2, 3, 4].sort(() => Math.random() - 0.5);
@@ -60,7 +79,7 @@ function randSpinWeights() {
   o.forEach((j, i) => { w[j] += p[i + 1] - p[i]; });
   return w;
 }
-function makeSpinPlan() {
+function makeSpinPlan(prizes) {
   const sec = Math.random() < SPIN_SECRET_CHANCE;
   const weights = sec ? Array.from({ length: 5 }, () => 31 + Math.floor(Math.random() * 30)) : randSpinWeights();
   const secretPct = sec ? (Math.random() < 0.65 ? 31 + Math.floor(Math.random() * 20) : 10 + Math.floor(Math.random() * 21)) : 0;
@@ -73,7 +92,7 @@ function makeSpinPlan() {
     win = SPIN_VALUES[0];
     for (let i = 0; i < 5; i++) { r -= weights[i]; if (r < 0) { win = SPIN_VALUES[i]; break; } }
   }
-  return { values: SPIN_VALUES, weights, secretPct, win };
+  return { values: SPIN_VALUES, weights, secretPct, win, prizes: normSpinPrizes(prizes) };
 }
 
 // Gifts above this many coins add extra time in regular/snipe phase.
@@ -97,6 +116,7 @@ config.prize = String(config.prize ?? defaultConfig.prize);
 config.overlayTheme = normTheme(config.overlayTheme);
 config.prizeMode = normPrizeMode(config.prizeMode);
 config.spinHoldSeconds = clampInt(config.spinHoldSeconds ?? 8, 3, 120);
+config.spinPrizes = normSpinPrizes(config.spinPrizes);
 let spinSeq = 0;
 if (!config.eulerApiKey) config.eulerApiKey = '';
 let activeConnectConfig = null;
@@ -133,6 +153,13 @@ const seenMessageIds = new Map();
 // start at the old total (e.g. 100 -> 101 instead of 1).
 const streakBaselines = new Map();
 
+// Big-drop sound: gifts >= this many coins play /audio/we-on-go.mp3 on the overlay
+// at ANY time while connected (even when the auction is idle/finished).
+// Uses its own dedupe maps so it never interferes with auction counting.
+const BIG_DROP_SOUND_MIN_COINS = 500;
+const bigDropSeenIds = new Map();
+const bigDropStreaks = new Map();
+
 function clampInt(value, min, max) {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n)) return min;
@@ -151,9 +178,17 @@ function sanitizeConfig(input) {
     drawMarginCoins: clampInt(input.drawMarginCoins, 0, 1_000_000),
     prize: String(input.prize ?? input.prizes?.['1'] ?? '').trim(),
     soundEnabled: input.soundEnabled === undefined ? (config.soundEnabled !== false) : Boolean(input.soundEnabled),
+    bigDropVolume: clampInt(input.bigDropVolume ?? config.bigDropVolume ?? 39, 0, 100),
+    hugeDropVolume: clampInt(input.hugeDropVolume ?? config.hugeDropVolume ?? 37, 0, 100),
+    masterVolume: clampInt(input.masterVolume ?? config.masterVolume ?? 100, 0, 100),
+    systemVolume: clampInt(input.systemVolume ?? config.systemVolume ?? 100, 0, 100),
+    coinVolume: clampInt(input.coinVolume ?? config.coinVolume ?? 100, 0, 100),
+    fxVolume: clampInt(input.fxVolume ?? config.fxVolume ?? 100, 0, 100),
+    spinVolume: clampInt(input.spinVolume ?? config.spinVolume ?? 100, 0, 100),
     overlayTheme: normTheme(input.overlayTheme ?? config.overlayTheme),
     prizeMode: normPrizeMode(input.prizeMode ?? config.prizeMode),
     spinHoldSeconds: clampInt(input.spinHoldSeconds ?? config.spinHoldSeconds, 3, 120),
+    spinPrizes: normSpinPrizes(input.spinPrizes ?? config.spinPrizes),
     autoSave: Boolean(input.autoSave)
   };
 }
@@ -290,7 +325,9 @@ function publicState() {
     timeBonus: { minCoins: TIME_BONUS_MIN_COINS, seconds: TIME_BONUS_SECONDS },
     winner: safeWinner(state.winner),
     winnerChat: state.winnerChat || '',
-    prize: config.prizeMode === 'spin' ? 'SPIN RBX' : (config.prize || ''),
+    prize: config.prizeMode === 'spin'
+      ? (state.spin?.revealed ? spinPrizeLabel(state.spin) : 'SPIN RBX')
+      : (config.prize || ''),
     config: publicConfig,
     connection: connectionState,
     eventLog: eventLog.slice(-40),
@@ -409,7 +446,50 @@ function applyCoins(data, coins, extra) {
   return true;
 }
 
+function emitBigDropSound(coins, nickname) {
+  io.to(room).emit('bigdrop:sound', { coins, nickname: nickname || '', at: Date.now() });
+}
+
+// Runs for every gift packet, regardless of auction phase.
+function maybeBigDropSound(data) {
+  const unit = getGiftCoins(data);
+  if (!unit) return;
+  const user = data?.user;
+  const userKey = String(user?.userId ?? user?.uniqueId ?? user?.nickname ?? 'unknown');
+  const giftId = String(data?.giftId ?? data?.giftDetails?.giftId ?? getGiftName(data));
+  const repeatCount = Math.max(1, Number(data?.repeatCount ?? 1));
+  const now = Date.now();
+
+  const eventId = getEventId(data);
+  if (eventId != null) {
+    const idKey = String(eventId);
+    if (bigDropSeenIds.has(idKey)) return;
+    bigDropSeenIds.set(idKey, now);
+  }
+
+  if (getGiftType(data) === 1) {
+    // Streakable gift: only count the new part of the streak.
+    const key = `${userKey}:${giftId}`;
+    const prev = bigDropStreaks.get(key);
+    const baseline = prev && now - prev.lastSeen <= 12_000 ? prev.count : 0;
+    if (repeatCount <= baseline) return;
+    const delta = repeatCount - baseline;
+    const prevTotal = baseline * unit;
+    const newTotal = repeatCount * unit;
+    bigDropStreaks.set(key, { count: repeatCount, lastSeen: now });
+    // Fire for a single big delta, or once when the streak total crosses the threshold.
+    if (unit * delta >= BIG_DROP_SOUND_MIN_COINS || (prevTotal < BIG_DROP_SOUND_MIN_COINS && newTotal >= BIG_DROP_SOUND_MIN_COINS)) {
+      emitBigDropSound(newTotal, user?.nickname);
+    }
+    return;
+  }
+
+  const total = unit * repeatCount;
+  if (total >= BIG_DROP_SOUND_MIN_COINS) emitBigDropSound(total, user?.nickname);
+}
+
 function handleGift(data) {
+  try { maybeBigDropSound(data); } catch (err) { console.error('bigdrop sound error:', err?.message || err); }
   if (!isAuctionAcceptingGifts()) return;
   const giftCoins = getGiftCoins(data);
   if (!giftCoins) return;
@@ -463,11 +543,24 @@ function handleGift(data) {
   applyCoins(data, giftCoins * repeatCount, { streak: false, repeatEnd: true });
 }
 
+// Called by the spin overlay once the reel has landed, so the winner overlay can swap
+// "SPIN RBX" for the prize that was actually won.
+function spinDone(seq) {
+  if (!state.spin || state.spin.revealed || Number(seq) !== state.spin.seq) return;
+  state.spin.revealed = true;
+  broadcast();
+}
+
+function spinPrizeLabel(spin) {
+  const i = spin.win === 1000 ? 5 : SPIN_VALUES.indexOf(spin.win);
+  return spin.prizes?.[SPIN_TIER_KEYS[i]] || DEFAULT_SPIN_PRIZES[SPIN_TIER_KEYS[i]] || '';
+}
+
 function planSpin() {
   state.spin = null;
   if (!state.winner || config.prizeMode !== 'spin') return;
   spinSeq += 1;
-  state.spin = { seq: spinSeq, auctionId: state.auctionId, ...makeSpinPlan() };
+  state.spin = { seq: spinSeq, auctionId: state.auctionId, ...makeSpinPlan(config.spinPrizes) };
 }
 
 function finalizeWinner() {
@@ -605,6 +698,8 @@ function maintenance() {
   for (const [k, v] of processedFingerprints) if (now - v > 60_000) processedFingerprints.delete(k);
   for (const [k, v] of streakBaselines) if (now - v.lastSeen > 15_000) streakBaselines.delete(k);
   if (streakProgress.size > 5000) streakProgress.clear();
+  for (const [k, v] of bigDropSeenIds) if (now - v > 60_000) bigDropSeenIds.delete(k);
+  for (const [k, v] of bigDropStreaks) if (now - v.lastSeen > 60_000) bigDropStreaks.delete(k);
   if (streakBaselines.size > 5000) streakBaselines.clear();
 }
 
@@ -791,17 +886,22 @@ function testSpin() {
   spinSeq += 1;
   io.to(room).emit('spin:test', {
     winner: { nickname: 'Demo Winner', avatar: fakeAvatar },
-    spin: { seq: spinSeq, auctionId: -1, ...makeSpinPlan() },
+    spin: { seq: spinSeq, auctionId: -1, ...makeSpinPlan(config.spinPrizes) },
     soundEnabled: config.soundEnabled !== false,
     holdSeconds: config.spinHoldSeconds
   });
 }
 
+function testBigDrop(coins = BIG_DROP_SOUND_MIN_COINS) {
+  emitBigDropSound(Math.max(BIG_DROP_SOUND_MIN_COINS, Math.floor(coins)), 'Test');
+}
+
 function demoGift(body = {}) {
-  if (!isAuctionAcceptingGifts()) return { ok: false, error: 'Auction is not accepting gifts.' };
   const name = String(body.name || 'DemoUser');
   const coins = Math.max(1, Math.floor(Number(body.coins) || 1));
   const repeatCount = Math.max(1, Math.floor(Number(body.repeatCount) || 1));
+  if (coins * repeatCount >= BIG_DROP_SOUND_MIN_COINS) emitBigDropSound(coins * repeatCount, name);
+  if (!isAuctionAcceptingGifts()) return { ok: true, soundOnly: true };
   const fake = {
     user: {
       userId: `demo-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
@@ -826,6 +926,8 @@ return {
   room,
   publicState,
   testSpin,
+  testBigDrop,
+  spinDone,
   broadcast,
   connectTikTok,
   startAuction,
@@ -1049,9 +1151,17 @@ app.post('/api/config', async (req, res) => {
     drawMarginCoins: clamp(input.drawMarginCoins, 0, 1_000_000),
     prize: String(input.prize ?? current.prize ?? defaultConfig.prize).trim() || defaultConfig.prize,
     soundEnabled: input.soundEnabled === undefined ? (current.soundEnabled !== false) : Boolean(input.soundEnabled),
+    bigDropVolume: clamp(input.bigDropVolume ?? current.bigDropVolume ?? 39, 0, 100),
+    hugeDropVolume: clamp(input.hugeDropVolume ?? current.hugeDropVolume ?? 37, 0, 100),
+    masterVolume: clamp(input.masterVolume ?? current.masterVolume ?? 100, 0, 100),
+    systemVolume: clamp(input.systemVolume ?? current.systemVolume ?? 100, 0, 100),
+    coinVolume: clamp(input.coinVolume ?? current.coinVolume ?? 100, 0, 100),
+    fxVolume: clamp(input.fxVolume ?? current.fxVolume ?? 100, 0, 100),
+    spinVolume: clamp(input.spinVolume ?? current.spinVolume ?? 100, 0, 100),
     overlayTheme: normTheme(input.overlayTheme ?? current.overlayTheme),
     prizeMode: normPrizeMode(input.prizeMode ?? current.prizeMode),
     spinHoldSeconds: clamp(input.spinHoldSeconds ?? current.spinHoldSeconds ?? 8, 3, 120),
+    spinPrizes: normSpinPrizes(input.spinPrizes ?? current.spinPrizes),
     autoSave: Boolean(input.autoSave)
   };
 
@@ -1061,6 +1171,36 @@ app.post('/api/config', async (req, res) => {
   await session.saveConfig();
   session.broadcast();
   res.json(session.publicState());
+});
+
+app.post('/api/spin/prizes', async (req, res) => {
+  const session = await routeControlSession(req);
+  if (!session) return res.status(401).json({ error: 'Session not found.' });
+  session.config.spinPrizes = normSpinPrizes(req.body?.spinPrizes ?? req.body);
+  await session.saveConfig();
+  session.broadcast();
+  res.json(session.publicState());
+});
+
+app.post('/api/sound/volume', async (req, res) => {
+  const session = await routeControlSession(req);
+  if (!session) return res.status(401).json({ error: 'Session not found.' });
+  const vol = (v, d) => { const n = Number.parseInt(v, 10); return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : d; };
+  if (req.body?.bigDropVolume !== undefined) session.config.bigDropVolume = vol(req.body.bigDropVolume, 39);
+  if (req.body?.hugeDropVolume !== undefined) session.config.hugeDropVolume = vol(req.body.hugeDropVolume, 37);
+  for (const k of ['masterVolume', 'systemVolume', 'coinVolume', 'fxVolume', 'spinVolume']) {
+    if (req.body?.[k] !== undefined) session.config[k] = vol(req.body[k], 100);
+  }
+  await session.saveConfig();
+  session.broadcast();
+  res.json(session.publicState());
+});
+
+app.post('/api/sound/test', async (req, res) => {
+  const session = await routeControlSession(req);
+  if (!session) return res.status(401).json({ error: 'Session not found.' });
+  session.testBigDrop(Number(req.body?.coins) || 500);
+  res.json({ ok: true });
 });
 
 app.post('/api/spin/test', async (req, res) => {
@@ -1182,6 +1322,7 @@ io.on('connection', (socket) => {
   const session = socket.data.auctionSession;
   socket.join(session.room);
   socket.emit('auction:state', session.publicState());
+  socket.on('spin:done', (d) => session.spinDone(d?.seq));
 });
 
 setInterval(() => {
